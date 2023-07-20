@@ -2,8 +2,27 @@
   (:require [clojure.java.io :as io])
   (:require [clojure.string :as s])
   (:require [clj-http.client :as client])
-  (:import [java.io BufferedOutputStream FileOutputStream])
-  (:import [javax.sound.sampled AudioFormat AudioSystem LineUnavailableException SourceDataLine DataLine DataLine$Info]))
+  (:import [java.io BufferedOutputStream
+            FileOutputStream])
+  (:import [javax.sound.sampled AudioFormat
+            AudioSystem LineUnavailableException
+            SourceDataLine DataLine DataLine$Info]))
+
+
+(defn file-to-lines [filename]
+  "Read a PLS file and filter only the TitleN= and FileN= lines"
+  (filter
+   (fn [s] (re-find #"^(Title|File)" s))
+   (with-open [rdr (io/reader filename)]
+     (doall
+      (line-seq rdr)))))
+
+(defn entry-number [line]
+  "PLS files have an entry number like File1 or Title1, non-entries return -1"
+  (let [n (second (re-find #"(\d+)?=" line))]
+    (if (nil? n)
+      -1
+      (Integer/parseInt n))))
 
 
 (defn parse-file [filename]
@@ -29,23 +48,6 @@
        (parse-file)
        (map :file)))
 
-
-(defn file-to-lines [filename]
-  "Read a PLS file and filter only the TitleN= and FileN= lines"
-  (filter
-   (fn [s] (re-find #"^(Title|File)" s))
-   (with-open [rdr (io/reader filename)]
-     (doall
-      (line-seq rdr)))))
-
-(defn entry-number [line]
-  "PLS files have an entry number like File1 or Title1, non-entries return -1"
-  (let [n (second (re-find #"(\d+)?=" line))]
-    (if (nil? n)
-      -1
-      (Integer/parseInt n))))
-
-
 (first (get-urls-from-pls-file "/Users/tobi/Music/di.pls"))
 
 (get-genres-from-pls-file "/Users/tobi/Music/di.pls")
@@ -58,14 +60,30 @@
   (get headers "icy-genre"))
 
 ;;current-time (System/currentTimeMillis)
-;;output-filename (format "/Users/tobi/Desktop/%s-%d.wav" genre current-time)
-;;output-stream (BufferedOutputStream. (FileOutputStream. output-filename))
 
-(let [genre "progressive"
-      url (first (get-urls-from-pls-file "/Users/tobi/Music/di.pls"))
-      response (client/get url {:as :stream})
-      input-stream (:body response)
-      buffer (make-array Byte/TYPE 16)]
-  (doall
-    (.read input-stream buffer)
-    (into [] buffer)))
+(defn write-binary [filename bytes]
+  "Write `bytes` to a file called `filename`"
+  (let [ba (byte-array bytes)]
+    (with-open [os (FileOutputStream. filename)]
+      (.write os ba))))
+
+
+(defn save-file-to-hard-drive []
+  (let [genre "progressive"
+        url (first
+             (get-urls-from-pls-file
+              "/Users/tobi/Music/di.pls"))       ;; get URL of Icecast stream
+        response (client/get url {:as :stream})  ;; HTTP request the URL
+        input-stream (:body response)
+        buffer (make-array Byte/TYPE 2000000)    ;; Make 2MB byte buffer
+        output-filename (s/join
+                         ["/Users/tobi/Desktop/"
+                          (str (System/currentTimeMillis))
+                          ".aac"])]              ;; reate an output file
+
+    (.read input-stream buffer)                  ;; read 2MB of response
+    (write-binary output-filename
+                  (byte-array buffer))))         ;; write 2MB out to filesystem
+
+
+
